@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { PageTitle, Panel } from "@/components/ui";
-import { platforms } from "@/lib/mock-data";
+import { SOCIAL_PLATFORMS } from "@/lib/social/platforms";
+import { validatePostForPlatforms } from "@/lib/social/validation";
 
 const starterCaption = "Your website should not just look good — it should guide visitors, build trust, and turn attention into action. GridSpell Studio builds structured digital experiences for businesses ready to look premium online.";
 
@@ -19,7 +20,7 @@ const starterVersions: Record<string, string> = {
 export default function ComposerPage() {
   const [caption, setCaption] = useState(starterCaption);
   const [versions, setVersions] = useState<Record<string, string>>(starterVersions);
-  const [selected, setSelected] = useState(platforms.map((p) => p.id));
+  const [selected, setSelected] = useState<string[]>(SOCIAL_PLATFORMS.map((p) => p.id));
   const [topic, setTopic] = useState("Website redesign for local businesses");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [time, setTime] = useState("10:00");
@@ -34,7 +35,12 @@ export default function ComposerPage() {
     setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
-  const selectedPlatforms = useMemo(() => platforms.filter((platform) => selected.includes(platform.id)), [selected]);
+  const selectedPlatforms = useMemo(() => SOCIAL_PLATFORMS.filter((platform) => selected.includes(platform.id)), [selected]);
+  const validation = useMemo(() => validatePostForPlatforms(selectedPlatforms.map((platform) => ({
+    platform: platform.id,
+    caption: versions[platform.id] ?? caption,
+    hasConnectedAccount: false,
+  }))), [caption, selectedPlatforms, versions]);
 
   async function generateCopy() {
     setLoadingAI(true);
@@ -111,9 +117,14 @@ export default function ComposerPage() {
         }),
       });
 
-      const result = await response.json();
+      const raw = await response.text();
+      const result = raw ? JSON.parse(raw) : {};
       if (!response.ok) throw new Error(result.error ?? "Could not save post.");
-      setMessage(asScheduled ? "Post scheduled and Inngest publish event queued." : "Draft saved to Appwrite.");
+      const warningCount = Array.isArray(result.validation?.warnings) ? result.validation.warnings.length : 0;
+      setMessage(asScheduled
+        ? `Post scheduled and Inngest publish event queued${warningCount ? ` with ${warningCount} API-readiness warning(s)` : ""}.`
+        : `Draft saved to Appwrite${warningCount ? ` with ${warningCount} API-readiness warning(s)` : ""}.`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save post.");
     } finally {
@@ -152,7 +163,7 @@ export default function ComposerPage() {
 
           <Panel title="Choose platforms" hint="Each selected platform gets its own saved caption row in Appwrite.">
             <div className="platform-select-grid">
-              {platforms.map((platform) => (
+              {SOCIAL_PLATFORMS.map((platform) => (
                 <button
                   key={platform.id}
                   type="button"
@@ -167,6 +178,17 @@ export default function ComposerPage() {
                 </button>
               ))}
             </div>
+          </Panel>
+
+          <Panel title="API readiness checks" hint="These warnings prepare the post for real platform APIs before we connect OAuth adapters.">
+            {validation.blocking.length === 0 && validation.warnings.length === 0 ? (
+              <p className="form-message success">This post is ready for demo publishing and has no platform warnings.</p>
+            ) : (
+              <div className="validation-list">
+                {validation.blocking.map((item) => <p className="form-message error" key={item}>{item}</p>)}
+                {validation.warnings.map((item) => <p className="form-message warning" key={item}>{item}</p>)}
+              </div>
+            )}
           </Panel>
 
           <Panel title="Schedule settings" hint="Saved schedule data creates a publish job and dispatches an Inngest event.">
@@ -209,7 +231,7 @@ export default function ComposerPage() {
                     <div className="avatar">G</div>
                     <div>
                       <strong>{platform.label}</strong>
-                      <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>{platform.handle}</p>
+                      <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>{platform.handleLabel}</p>
                     </div>
                   </div>
                   <span className="platform-pill">Preview</span>
