@@ -53,8 +53,23 @@ export default function ComposerPage() {
         }),
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "AI generation failed.");
+      const raw = await response.text();
+
+      let result: {
+        error?: string;
+        warning?: string;
+        versions?: Record<string, string>;
+      } = {};
+
+      try {
+        result = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(raw || `AI route returned ${response.status}`);
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error ?? `AI generation failed with status ${response.status}.`);
+      }
 
       setVersions((current) => ({ ...current, ...(result.versions ?? {}) }));
       if (result.versions?.linkedin) setCaption(result.versions.linkedin);
