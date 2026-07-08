@@ -15,14 +15,27 @@ const fallbackVersions: Record<string, string> = {
   pinterest: "Premium website design inspiration for modern businesses. Explore structured layouts, dark studio branding, conversion-focused sections, and clean digital systems by GridSpell Studio.",
 };
 
-function safeParseJson(text: string) {
+type CaptionRequestBody = {
+  topic?: unknown;
+  baseCaption?: unknown;
+  platforms?: unknown;
+  brandVoice?: unknown;
+};
+
+type CaptionResponse = {
+  versions?: Record<string, string>;
+  hashtags?: string[];
+  hook?: string;
+};
+
+function safeParseJson(text: string): CaptionResponse | null {
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) as CaptionResponse;
   } catch {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
-      return JSON.parse(match[0]);
+      return JSON.parse(match[0]) as CaptionResponse;
     } catch {
       return null;
     }
@@ -34,17 +47,24 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const env = getServerEnv();
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => ({}))) as CaptionRequestBody;
+
   const topic = typeof body.topic === "string" ? body.topic : "GridSpell Studio website redesign";
   const baseCaption = typeof body.baseCaption === "string" ? body.baseCaption : "";
-  const platforms = Array.isArray(body.platforms) ? body.platforms.filter((item) => typeof item === "string") : Object.keys(fallbackVersions);
-  const brandVoice = typeof body.brandVoice === "string" ? body.brandVoice : "Premium, structured, clear, confident, modern GridSpell Studio tone.";
+  const platforms = Array.isArray(body.platforms)
+    ? body.platforms.filter((item: unknown): item is string => typeof item === "string")
+    : Object.keys(fallbackVersions);
+  const brandVoice = typeof body.brandVoice === "string"
+    ? body.brandVoice
+    : "Premium, structured, clear, confident, modern GridSpell Studio tone.";
 
   if (!env.openaiApiKey) {
     return NextResponse.json({
       mode: "fallback",
       warning: "OPENAI_API_KEY is not set, so demo copy was returned.",
-      versions: Object.fromEntries(platforms.map((platform) => [platform, fallbackVersions[platform] ?? fallbackVersions.linkedin])),
+      versions: Object.fromEntries(
+        platforms.map((platform: string) => [platform, fallbackVersions[platform] ?? fallbackVersions.linkedin])
+      ),
     });
   }
 
@@ -61,7 +81,9 @@ export async function POST(request: Request) {
   if (!parsed?.versions) {
     return NextResponse.json({
       mode: "openai_raw_fallback",
-      versions: Object.fromEntries(platforms.map((platform) => [platform, response.output_text])),
+      versions: Object.fromEntries(
+        platforms.map((platform: string) => [platform, response.output_text])
+      ),
     });
   }
 

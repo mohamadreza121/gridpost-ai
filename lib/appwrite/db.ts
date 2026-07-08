@@ -29,7 +29,7 @@ export async function listDocuments<T>(collectionId: string, queries: string[] =
     queries,
   });
 
-  return response.documents as AppwriteDocument<T>[];
+  return response.documents as unknown as AppwriteDocument<T>[];
 }
 
 export async function getFirstDocument<T>(collectionId: string, queries: string[] = []) {
@@ -51,11 +51,13 @@ export async function createDocument<T extends Record<string, unknown>>(collecti
 export async function getDocument<T>(collectionId: string, documentId: string) {
   const env = getServerEnv();
   const { databases } = createAdminClient();
-  return await databases.getDocument({
+  const document = await databases.getDocument({
     databaseId: env.appwriteDatabaseId,
     collectionId,
     documentId,
-  }) as AppwriteDocument<T>;
+  });
+
+  return document as unknown as AppwriteDocument<T>;
 }
 
 export async function updateDocument<T extends Record<string, unknown>>(collectionId: string, documentId: string, data: Partial<T>) {

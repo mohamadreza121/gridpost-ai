@@ -4,9 +4,19 @@ import { COLLECTIONS } from "@/lib/appwrite/ids";
 import { createDocument, listDocuments, updateDocument } from "@/lib/appwrite/db";
 import { failPublishJob, markPostAsPosted } from "@/lib/publishing/demo-publisher";
 
+type PublishJobDocument = {
+  post_id: string;
+  status: string;
+  run_at?: string;
+};
+
 export const publishScheduledPost = inngest.createFunction(
-  { id: "publish-scheduled-post", name: "Publish scheduled post", retries: 3 },
-  { event: "post/scheduled" },
+  {
+    id: "publish-scheduled-post",
+    name: "Publish scheduled post",
+    retries: 3,
+    triggers: { event: "post/scheduled" },
+  },
   async ({ event, step }) => {
     const postId = event.data.postId as string;
     const runAt = event.data.runAt as string | undefined;
@@ -16,16 +26,20 @@ export const publishScheduledPost = inngest.createFunction(
     }
 
     await step.run("mark-job-running", async () => {
-      const jobs = await listDocuments<any>(COLLECTIONS.publishJobs, [
+      const jobs = await listDocuments<PublishJobDocument>(COLLECTIONS.publishJobs, [
         Query.equal("post_id", postId),
         Query.equal("status", "queued"),
         Query.limit(25),
       ]);
 
-      await Promise.all(jobs.map((job) => updateDocument(COLLECTIONS.publishJobs, job.$id, {
-        status: "running",
-        started_at: new Date().toISOString(),
-      })));
+      await Promise.all(
+        jobs.map((job) =>
+          updateDocument(COLLECTIONS.publishJobs, job.$id, {
+            status: "running",
+            started_at: new Date().toISOString(),
+          })
+        )
+      );
     });
 
     try {
@@ -38,11 +52,15 @@ export const publishScheduledPost = inngest.createFunction(
 );
 
 export const sweepDuePosts = inngest.createFunction(
-  { id: "sweep-due-posts", name: "Sweep due posts", retries: 1 },
-  { event: "posts/sweep.requested" },
+  {
+    id: "sweep-due-posts",
+    name: "Sweep due posts",
+    retries: 1,
+    triggers: { event: "posts/sweep.requested" },
+  },
   async ({ step }) => {
     const dueJobs = await step.run("load-due-jobs", async () => {
-      const jobs = await listDocuments<any>(COLLECTIONS.publishJobs, [
+      const jobs = await listDocuments<PublishJobDocument>(COLLECTIONS.publishJobs, [
         Query.equal("status", "queued"),
         Query.lessThanEqual("run_at", new Date().toISOString()),
         Query.orderAsc("run_at"),
@@ -64,8 +82,12 @@ export const sweepDuePosts = inngest.createFunction(
 );
 
 export const dailyAIDraftReminder = inngest.createFunction(
-  { id: "daily-ai-draft-reminder", name: "Daily AI draft reminder", retries: 1 },
-  { cron: "0 12 * * *" },
+  {
+    id: "daily-ai-draft-reminder",
+    name: "Daily AI draft reminder",
+    retries: 1,
+    triggers: { cron: "0 12 * * *" },
+  },
   async ({ step }) => {
     return await step.run("record-daily-agent-pulse", async () => {
       await createDocument(COLLECTIONS.agentEvents, {
@@ -74,6 +96,7 @@ export const dailyAIDraftReminder = inngest.createFunction(
           note: "Phase 1 cron pulse. Phase 2 can generate daily drafts with OpenAI and save them as posts.",
         }),
       });
+
       return { ok: true };
     });
   }

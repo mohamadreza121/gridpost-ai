@@ -267,7 +267,14 @@ async function createAttribute(collectionId: string, attr: Attribute) {
 }
 
 async function main() {
-  await ignoreExists(`database ${databaseId}`, () => databases.create({ databaseId, name: "GridPost AI" }));
+  try {
+    await databases.get({ databaseId });
+    console.log(`exists  database ${databaseId}`);
+  } catch {
+    await ignoreExists(`database ${databaseId}`, () =>
+      databases.create({ databaseId, name: "GridPost AI" })
+    );
+  }
 
   await ignoreExists(`bucket ${bucketId}`, () => storage.createBucket({
     bucketId,
@@ -280,7 +287,7 @@ async function main() {
     ],
     fileSecurity: false,
     enabled: true,
-    maximumFileSize: 100 * 1024 * 1024,
+    maximumFileSize: 50 * 1000 * 1000,
     allowedFileExtensions: ["jpg", "jpeg", "png", "webp", "gif", "mp4", "mov", "webm"],
   }));
 
