@@ -108,11 +108,25 @@ const collections: CollectionDefinition[] = [
     attributes: [
       { type: "string", key: "workspace_id", size: 64, required: true },
       { type: "string", key: "platform", size: 32, required: true },
+      { type: "string", key: "platform_account_id", size: 255, required: false },
       { type: "string", key: "display_name", size: 160, required: false },
+      { type: "string", key: "username", size: 160, required: false },
+      { type: "string", key: "avatar_url", size: 1000, required: false },
       { type: "string", key: "status", size: 32, required: true },
+      { type: "string", key: "scopes", size: 120, required: false, array: true },
+      { type: "string", key: "access_token_encrypted", size: 12000, required: false },
+      { type: "string", key: "refresh_token_encrypted", size: 12000, required: false },
+      { type: "datetime", key: "token_expires_at", required: false },
+      { type: "datetime", key: "token_last_refreshed_at", required: false },
+      { type: "datetime", key: "connected_at", required: false },
+      { type: "string", key: "last_error", size: 2000, required: false },
       { type: "string", key: "config", size: 5000, required: false },
     ],
-    indexes: [{ key: "workspace_id_idx", type: "key", attributes: ["workspace_id"] }],
+    indexes: [
+      { key: "workspace_id_idx", type: "key", attributes: ["workspace_id"] },
+      { key: "platform_idx", type: "key", attributes: ["platform"] },
+      { key: "status_idx", type: "key", attributes: ["status"] },
+    ],
   },
   {
     id: "media_assets",
@@ -159,11 +173,18 @@ const collections: CollectionDefinition[] = [
       { type: "string", key: "platform", size: 32, required: true },
       { type: "string", key: "caption", size: 5000, required: true },
       { type: "string", key: "status", size: 32, required: true },
+      { type: "string", key: "social_account_id", size: 64, required: false },
+      { type: "string", key: "validation_status", size: 32, required: false },
+      { type: "string", key: "validation_messages", size: 400, required: false, array: true },
+      { type: "string", key: "external_post_id", size: 255, required: false },
+      { type: "string", key: "external_post_url", size: 1000, required: false },
+      { type: "string", key: "error_message", size: 2000, required: false },
       { type: "datetime", key: "published_at", required: false },
     ],
     indexes: [
       { key: "workspace_id_idx", type: "key", attributes: ["workspace_id"] },
       { key: "post_id_idx", type: "key", attributes: ["post_id"] },
+      { key: "platform_idx", type: "key", attributes: ["platform"] },
     ],
   },
   {
@@ -176,6 +197,8 @@ const collections: CollectionDefinition[] = [
       { type: "datetime", key: "run_at", required: true },
       { type: "datetime", key: "started_at", required: false },
       { type: "datetime", key: "completed_at", required: false },
+      { type: "integer", key: "retry_count", required: false },
+      { type: "datetime", key: "locked_at", required: false },
       { type: "string", key: "error_message", size: 2000, required: false },
     ],
     indexes: [
@@ -193,8 +216,11 @@ const collections: CollectionDefinition[] = [
       { type: "string", key: "post_platform_id", size: 64, required: true },
       { type: "string", key: "platform", size: 32, required: true },
       { type: "string", key: "status", size: 32, required: true },
+      { type: "string", key: "external_post_id", size: 255, required: false },
       { type: "string", key: "external_url", size: 1000, required: false },
+      { type: "string", key: "error_message", size: 2000, required: false },
       { type: "string", key: "response", size: 5000, required: false },
+      { type: "datetime", key: "published_at", required: false },
     ],
     indexes: [{ key: "post_id_idx", type: "key", attributes: ["post_id"] }],
   },
@@ -276,20 +302,25 @@ async function main() {
     );
   }
 
-  await ignoreExists(`bucket ${bucketId}`, () => storage.createBucket({
-    bucketId,
-    name: "GridPost Media",
-    permissions: [
-      Permission.read(Role.any()),
-      Permission.create(Role.users()),
-      Permission.update(Role.users()),
-      Permission.delete(Role.users()),
-    ],
-    fileSecurity: false,
-    enabled: true,
-    maximumFileSize: 50 * 1000 * 1000,
-    allowedFileExtensions: ["jpg", "jpeg", "png", "webp", "gif", "mp4", "mov", "webm"],
-  }));
+  try {
+    await storage.getBucket({ bucketId });
+    console.log(`exists  bucket ${bucketId}`);
+  } catch {
+    await ignoreExists(`bucket ${bucketId}`, () => storage.createBucket({
+      bucketId,
+      name: "GridPost Media",
+      permissions: [
+        Permission.read(Role.any()),
+        Permission.create(Role.users()),
+        Permission.update(Role.users()),
+        Permission.delete(Role.users()),
+      ],
+      fileSecurity: false,
+      enabled: true,
+      maximumFileSize: 50 * 1000 * 1000,
+      allowedFileExtensions: ["jpg", "jpeg", "png", "webp", "gif", "mp4", "mov", "webm"],
+    }));
+  }
 
   for (const collection of collections) {
     await ignoreExists(`collection ${collection.id}`, () => databases.createCollection({
