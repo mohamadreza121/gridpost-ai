@@ -6,8 +6,10 @@ import { inngest } from "@/lib/inngest/client";
 import { getCurrentUserAndWorkspace } from "@/lib/workspace";
 import { COLLECTIONS } from "@/lib/appwrite/ids";
 import { createDocument, listDocuments } from "@/lib/appwrite/db";
+import { findConnectedAccount } from "@/lib/social/publisher";
+import { validatePostForPlatforms } from "@/lib/social/validation";
 
-type PlatformPayload = {
+export type PlatformPayload = {
   platform: string;
   caption: string;
 };
@@ -54,9 +56,15 @@ export async function GET() {
       post_platforms: platforms
         .filter((platform) => platform.post_id === post.$id)
         .map((platform) => ({
+          id: platform.$id,
           platform: platform.platform,
           caption: platform.caption,
           status: platform.status,
+          social_account_id: platform.social_account_id,
+          validation_status: platform.validation_status,
+          validation_messages: platform.validation_messages ?? [],
+          external_post_url: platform.external_post_url,
+          error_message: platform.error_message,
         })),
     })),
   });
@@ -90,6 +98,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Choose at least one platform." }, { status: 400 });
   }
 
+  const connectedAccounts = await Promise.all(
+    platforms.map(async (platform) => ({
+      platform: platform.platform,
+      account: await findConnectedAccount(workspaceId, platform.platform),
+    }))
+  );
+
+  const accountByPlatform = new Map(connectedAccounts.map((item) => [item.platform, item.account]));
+  const validation = validatePostForPlatforms(platforms.map((platform) => ({
+    platform: platform.platform,
+    caption: platform.caption,
+    hasConnectedAccount: Boolean(accountByPlatform.get(platform.platform)),
+  })));
+
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.blocking.join(" "), validation }, { status: 400 });
+  }
+
   const status = scheduledAt ? "scheduled" : "draft";
 
   const post = await createDocument(COLLECTIONS.posts, {
@@ -104,13 +130,24 @@ export async function POST(request: Request) {
   });
 
   await Promise.all(
-    platforms.map((platform) => createDocument(COLLECTIONS.postPlatforms, {
-      post_id: post.$id,
-      workspace_id: workspaceId,
-      platform: platform.platform,
-      caption: platform.caption,
-      status,
-    }))
+    platforms.map((platform) => {
+      const result = validation.results.find((item) => item.platform === platform.platform);
+      const account = accountByPlatform.get(platform.platform);
+
+      return createDocument(COLLECTIONS.postPlatforms, {
+        post_id: post.$id,
+        workspace_id: workspaceId,
+        platform: platform.platform,
+        caption: platform.caption,
+        status,
+        social_account_id: account?.$id ?? "",
+        validation_status: result?.warnings.length ? "warning" : "ready",
+        validation_messages: result?.warnings ?? [],
+        external_post_id: "",
+        external_post_url: "",
+        error_message: "",
+      });
+    })
   );
 
   if (scheduledAt) {
@@ -119,6 +156,8 @@ export async function POST(request: Request) {
       post_id: post.$id,
       status: "queued",
       run_at: scheduledAt,
+      retry_count: 0,
+      error_message: "",
     });
 
     await inngest.send({
@@ -131,5 +170,5 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({ postId: post.$id, status });
+  return NextResponse.json({ postId: post.$id, status, validation });
 }
